@@ -1,0 +1,115 @@
+---
+title: "Define JBC Terms"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+options(stringsAsFactors = FALSE)
+knitr::opts_chunk$set(echo = TRUE)
+source("util/util.R")
+source("util/eutilities.R")
+source("util/.ncbi_api_key.R")
+library(reutils)
+library(rentrez)
+```
+
+## Retrieve PubMed MeSH terms for the year 2015
+
+We may trim down the time window on either end, but for now we will be retrieving data for the time range 2005-2019. Last analysis we used the time window 2003-2013 and used the year 2013 to define the JBC niche terms. Here 2015 sits squarely in the limits of our analysis, but is recent enough to represent JBC's current profile.
+
+#### Retrieve list of biological science journals
+
+```{r}
+query <- '("biological science disciplines"[MeSH Major Topic]) AND "periodical"[Publication Type] AND (ncbijournals[All Fields] AND English[lang])'
+query_year <- 2015
+```
+
+
+```{r, warning=FALSE}
+# Let's get the list of jourmals from the NLM database
+jrnls <- esearch(query, db = "nlmcatalog",retmax = 10000)
+jrnls <- esummary(jrnls, db = "nlmcatalog")
+jrnls <- content(jrnls, as = "parsed")
+
+
+# Extract journal metadata into dataframe
+jids <- do.call(rbind, sapply(names(sapply(jrnls,names)), function(x) {
+    jname <- x
+    j <- jrnls[[x]]
+    
+    if("ISSNList.ISSNInfo.issn" %in% names(j)) { issn <- j$ISSNList.ISSNInfo.issn }
+    else{issn <- NA}
+    
+    if("TitleMainList.TitleMain.SortTitle" %in% names(j)) { title <- j$TitleMainList.TitleMain.SortTitle}
+    else{title <- NA}
+    
+    if("MedlineTA" %in% names(j)) { ta <- j$MedlineTA }
+    else{ta <- NA}
+    
+    data.frame("uid" = x,"issn" = issn, "title" = title, "ta" = ta, stringsAsFactors = F)
+    },
+    simplify = F))
+
+write.csv(jids, "results/NLM_Identifiers_for_Journals_in_biological_science_disciplines.csv", row.names = F)
+# Cleanup
+rm(jrnls, query)
+```
+
+#### Retreive list of article IDs for these journals
+
+```{r}
+# To learn about the search fields in pubmed: http://libguides.utoledo.edu/searchingpubmed/tags
+tas <- jids[which(!is.na(jids$ta)), "ta"]
+
+# Let's add some brittle, but useful caching...
+# Be careful!
+article_id_file <- paste0("results/pubmed_article_ids_", query_year, ".csv")
+if(!file.exists(article_id_file)) {
+  
+  
+  article_ids <- data.frame("ta" = character(0),"search_year" = numeric(0),
+                            "article_count" = numeric(0), "uids" = character(0))
+  
+  # Should take on the order to five minutes. 
+  for(ta in tas) {
+    
+    ta_res <- entrez_search(term = paste0(ta, "[TA] and ", query_year, "[pdat]"), 
+                            db = "pubmed", retmax = 9e4, api_key = api_key)
+    uids <- ta_res$ids
+    uids_chr <- paste(uids,collapse = ";")
+    
+    temp <- data.frame("ta" = ta, "search_year" = query_year, 
+                       "article_count" = length(uids), "uids" = uids_chr)
+    article_ids <- rbind(article_ids, temp)
+    
+    # With the API key we can make up to 10 queries per second.
+    # Otherwise it's just three queries per second
+    Sys.sleep(time = 0.105)
+  }
+  write.csv(article_ids, article_id_file, row.names = F)
+  
+} else {
+  article_ids <- read.csv(article_id_file)
+}
+```
+
+#### 
+
+```{r}
+article_ids$uids <- as.character(article_ids$uids)
+article_ids <- article_ids[which(article_ids$uids != ""),]
+
+pmids <- paste(article_ids$uids, collapse=";")
+pmids <- unlist(strsplit(pmids,";"))
+
+# Since this process takes a long time,
+# let's look at the previously retreived data and
+# see if we can grab some of these article IDs from there
+
+
+```
+
+
+
