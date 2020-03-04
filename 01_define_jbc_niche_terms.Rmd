@@ -329,5 +329,5 @@ JBC. These terms define JBC's scientific niche.
 jbc <- mhtfidf %>% filter(TA == "J Biol Chem") %>% arrange(-tfidf) %>%
   slice(1:100)
 
-write.csv(jbc, "jbc_characteristic_terms.csv", row.names = FALSE)
+write.csv(jbc, "results/jbc_characteristic_terms.csv", row.names = FALSE)
 ```
