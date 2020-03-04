@@ -7,3 +7,5 @@ data/*
 results/*
 util/.*
 figures/*
+*.out
+*.err

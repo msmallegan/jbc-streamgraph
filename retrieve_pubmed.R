@@ -40,17 +40,21 @@ jbc_niche_articles <- data.frame("PMID" = character(),
                                  "TA" = character(),
                                  "MH" = character(),
                                  "DP" = character())
-
+i <- 1
+j <- 7
 for(i in 1:length(years)) {
   for(j in 1:nrow(niche_terms)) {
     cat("Running year ", years[i], " and term ", niche_terms$MH[j], "\n")
     res_ta <- entrez_search(term = paste0(niche_terms$MH[j],"[mesh] and ", years[i], "[pdat]"), 
                             db = "pubmed", retmax = 9e4, api_key = api_key,
                             use_history = TRUE)
-    res_medline_chr <- entrez_fetch(db="pubmed", web_history = res_ta$web_history, rettype = "MEDLINE")
-    res_medline_list <- medline_parser(res_medline_chr)
-    medline_df <- medline_list_to_df(medline_list = res_medline_list)
-    jbc_niche_articles <- bind_rows(jbc_niche_articles, medline_df)
+    if(length(res_ta$ids) > 0) {
+      res_medline_chr <- entrez_fetch(db="pubmed", web_history = res_ta$web_history, rettype = "MEDLINE")
+      res_medline_list <- medline_parser(res_medline_chr)
+      medline_df <- medline_list_to_df(medline_list = res_medline_list)
+      jbc_niche_articles <- bind_rows(jbc_niche_articles, medline_df)
+    }
+
     # Break just in case.
     Sys.sleep(0.2)
   }
