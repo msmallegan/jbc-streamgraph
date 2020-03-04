@@ -1,0 +1,100 @@
+---
+title: "Characterize JBC peer journals"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+options(stringsAsFactors = FALSE)
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(igraph)
+library(ggdendro)
+```
+
+## Make a weighted network based on TF-IDF in 2015
+
+We'll make a bipartite network between terms and journals.
+
+```{r}
+mesh <- read.csv("results/biological_sciences_mesh_tfidf_2015.csv")
+mesh$logtfidf <- log10(mesh$tfidf)
+
+g <- graph.empty()
+g <- g + vertices(unique(mesh$MH), color="red", type="mesh") + vertices(unique(mesh$TA), color="blue", type="ta")
+g[from=mesh$MH, to=mesh$TA] <- TRUE
+g[from=mesh$MH, to=mesh$TA, attr="weight"] <- mesh$logtfidf
+g
+
+```
+
+Clean up graph
+
+
+```{r}
+clique.number(g)
+g
+
+# Remove disconnected vertices. WTF are these coming from?
+cl <- clusters(g)
+x <- which.max(sizes(cl))
+hmm <- induced.subgraph(g,which(membership(cl) == x))
+# plot(hmm, layout=layout.fruchterman.reingold)
+rm(g)
+cl <- clusters(hmm)
+
+# Dang, this may take a while. Forgot about that...
+p <- spinglass.community(hmm)
+
+save(hmm, file="results/mesh_2015_igraph.RData")
+save(p, file="results/spinglass_communities_2015.RData")
+
+head(membership(p))
+head(names(membership(p)))
+huh <- data.frame("vertex"=names(membership(p)),"membership"=as.vector(membership(p)))
+huh$category <- "mesh"
+huh[which(huh$vertex %in% unique(mesh$TA)),"category"] <- "ta"
+write.csv(huh,"results/spinglass_results.csv", row.names = FALSE)
+```
+
+```{r}
+jbc_spinglass_clus <- read.csv("results/spinglass_results.csv") %>% filter(membership == 4,
+                                                                        category == "ta")
+
+mesh <- mesh %>% filter(TA %in% jbc_spinglass_clus$vertex) %>% select(MH, TA,logtfidf)
+
+data <- spread(mesh, TA, logtfidf)
+rownames(data) <- data$MH
+data <- data %>% select(-MH)
+
+hmm <- data[rowSums(!is.na(data)) > 40,]
+hmm[is.na(hmm)] <- 0
+hmm <- as.matrix(hmm)
+hmm <- t(hmm)
+
+
+d <- dist(hmm,method="binary")
+hc <- hclust(d)
+plot(hc)
+
+hierclusters <- cutree(hc, k = 40)
+hierclusters <- data.frame("TA" = names(hierclusters), "cluster" = as.vector(hierclusters))
+
+hierclusters %>% filter(TA == "J Biol Chem")
+hierclusters %>% filter(cluster == 21)
+
+jbc_cluster <- hierclusters %>% filter(cluster == 21)
+
+jbc_cl_matrix <- hmm[which(rownames(hmm) %in% jbc_cluster$TA),]
+
+d <- dist(jbc_cl_matrix)
+hc <- hclust(d)
+plot(hc)
+
+pdf(file="figures/jbc_dendro_2015mesh.pdf",width=7, height=10)
+ggdendrogram(hc, rotate=T)
+dev.off()
+```
+
+

@@ -6,3 +6,4 @@ data/*
 *.Rproj
 results/*
 util/.*
+figures/*
