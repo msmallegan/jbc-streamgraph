@@ -7,13 +7,13 @@
 #SBATCH --ntasks=1
 #SBATCH --mem=40gb                 # Memory limit
 #SBATCH --time=15:00:00            # Time limit hrs:min:sec
-#SBATCH --output=retrieve_pubmed.out
-#SBATCH --error=retrieve_pubmed.err
+#SBATCH --output=retrieve_pubmed7.out
+#SBATCH --error=retrieve_pubmed7.err
 
 pwd; hostname; date
 
 echo "You've requested $SLURM_CPUS_ON_NODE core."
 
-Rscript retrieve_pubmed.R
+Rscript retrieve_pubmed.R 7
 
 date

@@ -8,18 +8,7 @@ editor_options:
   
 ---
 
-```{r setup, include=FALSE}
-options(stringsAsFactors = FALSE)
-knitr::opts_chunk$set(echo = TRUE)
-source("util/util.R")
-source("util/eutilities.R")
-source("util/.ncbi_api_key.R")
-library(reutils)
-library(rentrez)
-library(data.table)
-setDTthreads(12)
-library(tidyverse)
-```
+
 
 ## Retrieve PubMed MeSH terms for the year 2015
 
@@ -27,13 +16,15 @@ We may trim down the time window on either end, but for now we will be retrievin
 
 #### Retrieve list of biological science journals
 
-```{r}
+
+```r
 query <- '("biological science disciplines"[MeSH Major Topic]) AND "periodical"[Publication Type] AND (ncbijournals[All Fields] AND English[lang])'
 query_year <- 2015
 ```
 
 
-```{r, warning=FALSE}
+
+```r
 # Let's get the list of jourmals from the NLM database
 jrnls <- esearch(query, db = "nlmcatalog",retmax = 10000)
 jrnls <- esummary(jrnls, db = "nlmcatalog")
@@ -65,7 +56,8 @@ rm(jrnls, query)
 
 #### Retreive list of article IDs for these journals
 
-```{r}
+
+```r
 # To learn about the search fields in pubmed: http://libguides.utoledo.edu/searchingpubmed/tags
 tas <- jids[which(!is.na(jids$ta)), "ta"]
 
@@ -103,7 +95,8 @@ if(!file.exists(article_id_file)) {
 
 #### Retrieve MeSH terms for these articles
 
-```{r}
+
+```r
 article_ids$uids <- as.character(article_ids$uids)
 article_ids <- article_ids[which(article_ids$uids != ""),]
 
@@ -232,11 +225,11 @@ if(!file.exists(article_mesh_file)) {
 } else {
   article_mesh <- read.csv(article_mesh_file)
 }
-
 ```
 
 
-```{r}
+
+```r
 # Some of the journals are missing. I wonder which ones and why.. damn I wish this just worked
 missing_journals <- article_ids[which(!(article_ids$ta %in% unique(article_mesh$TA))), ]
 fq <- concat_query(missing_journals$ta[101:200], query_year = query_year)
@@ -249,6 +242,13 @@ medline_df <- medline_list_to_df(medline_list = res_medline_list)
     
 # Hmm, the first 100 generated 3 more hits. -- Maybe they really are missing?
 length(unique(medline_df$TA))
+```
+
+```
+## [1] 22
+```
+
+```r
 # Otherwise the issue is with the way the queries are constructed -- and that would be a bummer. 
 # I'm going to continue on for now. 
 ```
@@ -260,10 +260,24 @@ length(unique(medline_df$TA))
 
 Also we'll filter terms that don't appear very often < 20 times in the dataset out of `nrow(article_mesh)` papers and `length(unique(article_mesh$PMID))` journals in the dataset. 
 
-```{r}
-length(unique(article_mesh$PMID))
-length(unique(article_mesh$TA))
 
+```r
+length(unique(article_mesh$PMID))
+```
+
+```
+## [1] 67841
+```
+
+```r
+length(unique(article_mesh$TA))
+```
+
+```
+## [1] 550
+```
+
+```r
 article_mesh_long <- article_mesh %>% 
   separate_rows(MH, sep = ";") 
 
@@ -279,13 +293,33 @@ term_freq <- article_mesh_long %>% group_by(MH) %>%
 # Let's remove all of the terms that occur less than 20 times. This may be a parameter you would
 # want to adjust. You may get slightly different results here.
 hist(term_freq$count, breaks = 100)
+```
+
+![](01_define_jbc_niche_terms_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+
+```r
 summary(term_freq$count)
+```
+
+```
+##     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+##     1.00     1.00     1.00     5.01     2.00 34457.00
+```
+
+```r
 term_freq <- term_freq %>% filter(count > 20)
 
 # This takes kind of a while and could be optimized with some solution from data.table (if you're 
 # using R).
 journal_mesh <- journal_mesh %>% filter(MH %in% term_freq$MH)
 length(unique(journal_mesh$TA))
+```
+
+```
+## [1] 550
+```
+
+```r
 # Okay, this filtering didn't get rid of any journals, which makes me think
 # it's an issue with the querying process. Bummer.
 ```
@@ -293,7 +327,8 @@ length(unique(journal_mesh$TA))
 #### Calculate term frequency - inverse document frequency
 
 
-```{r}
+
+```r
 # Calculate TF-IDF
 
 # Term frequency: number of times the term t appears in a doc / total number of terms in the document
@@ -328,7 +363,8 @@ document, which in this case is a journal. Now, since the subject of our streamg
 we will use the terms in the JBC with the highest tf-idf index as our representative terms for the
 JBC. These terms define JBC's scientific niche.
 
-```{r}
+
+```r
 jbc <- mhtfidf %>% filter(TA == "J Biol Chem") %>% arrange(-tfidf) %>%
   slice(1:100)
 
