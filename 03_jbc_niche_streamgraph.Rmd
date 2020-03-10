@@ -10,6 +10,10 @@ options(stringsAsFactors = FALSE)
 source("util/util.R")
 source("util/eutilities.R")
 source("util/.ncbi_api_key.R")
+
+# devtools::install_github("hrbrmstr/streamgraph")
+library(streamgraph)
+
 library(rentrez)
 library(tidyverse)
 library(rslurm)
@@ -197,9 +201,10 @@ paper_counts <- bind_rows(big_counts, other_counts)
 Okay, fingers crossed.
 
 ```{r}
-streamgraph(jcl, key = "journal", value = "article_count", date = "year",
-            width=1200,height=1200, interactive=TRUE) %>%
-  sg_axis_x(1, "Year") %>% sg_fill_brewer(palette = "Spectral")
+
+streamgraph(paper_counts %>% filter(TA != "Other"), key = "TA", value = "paper_count", date = "year",
+            width=1000,height=600, interactive=TRUE) %>%
+  sg_axis_x(1, "Year") %>% sg_fill_brewer(palette = "Spectral") 
 ```
 
 
