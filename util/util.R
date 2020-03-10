@@ -203,16 +203,16 @@ medline_list_to_df <- function(medline_list) {
 assemble_query_w_subheadings <- function(query_term, subheadings, year) {
   query <- paste0("\"", query_term, "/", subheadings[[1]],"\"[Mesh]")
   for(i in 2:length(subheadings)) {
-    query <- paste0(query, " OR \"", query_term, "\" and ", year, "[pdat]")
+    query <- paste0(query, " OR \"", query_term, "/", subheadings[[i]], "\" and ", year, "[pdat]")
   }
   return(query)
 }
 
-make_query <- function(term) {
+make_query <- function(term, year) {
   subheadings <- unlist(strsplit(term, "/"))[-1]
   if(length(subheadings) > 1) {
     query_term <- unlist(strsplit(term, "/"))[[1]]
-    query <- assemble_query_w_subheadings(query_term, subheadings, years[i])
+    query <- assemble_query_w_subheadings(query_term, subheadings, year)
   } else {
     query <- niche_terms$MH[j]
   }

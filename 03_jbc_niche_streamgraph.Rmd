@@ -12,6 +12,8 @@ source("util/eutilities.R")
 source("util/.ncbi_api_key.R")
 library(rentrez)
 library(tidyverse)
+library(rslurm)
+library(data.table)
 ```
 
 ## Retrieve PubMed entries for JBC niche terms
@@ -27,7 +29,7 @@ years <- 2005:2019
 # term, there should be files corresponding to years 1-15
 # and terms 1-100. 
 # I'll now just check to see that all these files have been retrieved.
-niche_files <- data.frame("fl" = list.files("data/")) %>%
+niche_files <- data.frame("fl" = list.files("data", full.names = T)) %>%
   filter(grepl("jbc_niche", fl)) %>%
   mutate(i = str_extract(fl, "\\d+") %>% as.numeric(),
          j = str_extract(fl, "\\d+(?=\\.)") %>% as.numeric()) %>%
@@ -54,7 +56,7 @@ niche_terms[c(32,52,68),"MH"]
 # It's possible the other terms were just not present in that 2007. 
 # To see if that's the case we can plot their occurence in time. 
 # and see if it's low enough that feasibly 2007 didn't see any Proteolysis publications.
-
+# TODO: check 32,52, 68 for year 2007
 
 ```
 
@@ -84,7 +86,32 @@ analysis, the subheadings should be treated uniformly in the TF-IDF clustering a
 in the data retrieval here.
 
 ```{r}
+# Okay, I'm going to re-org this a bit and do it in a cleaner way using rslurm.
+pars <- data.frame(year = years)
+pars$niche_terms <- rep(list(niche_terms$MH), times = length(years))
 
+# So now things will be returned as R objects. 
+# TODO: will have to integrate these results 
+# or just re-run everything.. that will have to happen
+# eventually. 
+sopt <- list(time = '1:00:00')
+sjob <- slurm_apply(retrieve_pubmed, pars, jobname = 'retrieve_missing',
+                    add_objects = c("make_query", "api_key", "medline_parser", 
+                                    "assemble_query_w_subheadings"),
+                    nodes = 1, cpus_per_node = 5, submit = FALSE,
+                    slurm_options = sopt)
+# Nifty little bit of code here.
+# system("source /etc/profile; cd _rslurm_retrieve_missing; sbatch submit.sh")
+
+res <- get_slurm_out(sjob, outtype = 'raw', ncores = 6)
+
+res_df <- bind_rows(res)
+
+# cleanup_files(sjob)
+```
+
+
+```{r notes}
 # The major issue with terms 7 and 30 are that they have subheadings and that
 # is weirdly resulting in zero results. "Peptide Fragments" (Term 29)
 # also has subheadings, but there are apparently results returned by that query.
@@ -92,68 +119,89 @@ in the data retrieval here.
 # TODO: Whoops it appears that entrez_fetch may have had a default return of 10,000 articles
 # anything that maxed out at 10k probably has more articles to retrive. bummer.
 
-
 # pdat is the date of print publication
 # That does seem like what we want, phew.
 
-# Oh wow, okay. So I fixed the issue with the entrez_fetch maxing out at 10k. 
-# But it turns out that the reason the subheadings weren't working is because they needed to 
-# be separated like so:
-# ( "Recombinant Proteins/chemistry"[Mesh] OR  "Recombinant Proteins/metabolism"[Mesh] )
-# Oh man. Also, I feel that the other queries really should have had quotes
-# Well also, weirdly the other terms with multiple subheadings do return results. It's just
-# these two terms that don't. 
-# Hmm, I gues to grab these terms I'll split it up and the ideal thing to do 
-# Would be to test the other terms to see how much of a difference it makes. 
 # TODO: Maybe. Test the difference between splitting up the subheadings and not
 # Also, why was it that these terms showed up in the first place if they don't 
 # capture anything with this query?
 # It seems like it may not make a difference, but I do want to get it right.
 # TODO: rerun the whole thing with the updated code including quotes on the query.
+```
 
 
+#### Gather collected data
 
-for(i in 1:length(years)) {
-  for(j in c(7,30)) {
-    # TODO: update the retreive_pubmed.R script with the new code.
-    # For terms with multiple subheadings we're going to split them into their individual subheadings
-    query <- make_query(niche_terms$MH[j])
-    
-    # Execute search
-    res_ta <- entrez_search(term = query, 
-                            db = "pubmed", 
-                            retmax = 9e4, 
-                            api_key = api_key,
-                            use_history = TRUE)
-    
-    # Ensure that we retrive all papers even if there is more than 10k results
-    # This is a way of batching the results retrieval.
-    retstarts <- 1e4*(1:ceiling(res_ta$count/1e4)-1)
-    
-    # Let's make this robust to intermittent connection issues.
-    # By retrying four times if we get an error.
-    res_df <- NULL
-    attempt <- 0
-    while( is.null(res_df) && attempt <= 4 ) {
-      attempt <- attempt + 1
-      try(
-        res_df <- do.call(rbind, lapply(retstarts, function(retstart) {
-          entrez_fetch(db="pubmed", 
-                       web_history = res_ta$web_history, 
-                       rettype = "MEDLINE",
-                       retstart = retstart) %>%
-            medline_parser() %>%
-            select("PMID", "MH", "TA", "DP")
-        }))
-      )
-    } 
-    # Output the results.
-    write.csv(res_df, paste0("data/jbc_niche", year_index, "_", j, ".csv"), row.names = FALSE)
-  }
-}
+```{r}
+# okay, while all that junk is running, I can just gather the data I do have
+# and put it in the format to make the streamgraph.
+niche_files$year <- years[niche_files$i]
+niche_files$term <- niche_terms$MH[niche_files$j]
+
+# Hmm, this may take a while. Will probably save this as an R object. 
+# and copy to my home directory as well. 
+niche_papers <- do.call(rbind, lapply(1:nrow(niche_files), function(x) {
+  dat <- fread(niche_files$fl[x])
+  dat$term <- niche_files$term[x]
+  dat$year <- niche_files$year[x]
+  return(dat)
+}))
+
+niche_papers$PMID <- as.character(niche_papers$PMID)
+# Since we did a part of the run previously we will want to merge
+niche_papers <- bind_rows(niche_papers, res_df)
+
+# save(niche_papers, file = "data/niche_papers.RData")
+# save(niche_papers, file = "~/jbc-streamgraph/data/niche_papers.RData")
+
+```
 
 
+#### Compile into per year and journal
+
+Okay, so to create the streamgraph we want articles per journal per year.
+
+```{r}
+# Let' count per journal and year]
+niche_journal_summary <- niche_papers %>% 
+  group_by(TA, year) %>%
+  summarize(paper_count = length(unique(PMID)))
+write.csv(niche_journal_summary, "results/jbc_niche_year_counts_per_journal.csv", row.names = FALSE)
+
+# Okay let's put all the small journals into an other category
+journal_totals <- niche_journal_summary %>% group_by(TA) %>%
+  summarize(mean = mean(paper_count),
+            min = min(paper_count),
+            max = max(paper_count))
+
+big_journals <- journal_totals %>% filter(mean > 400)
+small_journals <- journal_totals %>% filter(mean <= 400)
+
+other_counts <- niche_journal_summary %>% 
+  filter(TA %in% small_journals$TA) %>%
+  group_by(year) %>% 
+  summarize(paper_count = sum(paper_count)) %>%
+  mutate(TA = "Other") %>%
+  select(TA, year, paper_count)
+big_counts <- niche_journal_summary %>%
+  filter(TA %in% big_journals$TA) 
+
+paper_counts <- bind_rows(big_counts, other_counts)
 
 
 ```
+
+
+#### Streamgraph
+
+Okay, fingers crossed.
+
+```{r}
+streamgraph(jcl, key = "journal", value = "article_count", date = "year",
+            width=1200,height=1200, interactive=TRUE) %>%
+  sg_axis_x(1, "Year") %>% sg_fill_brewer(palette = "Spectral")
+```
+
+
+
 
