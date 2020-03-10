@@ -176,3 +176,46 @@ split_journal_keywords <- function(sdata) {
   return(kws)
 }
 
+# We'll extract just the fields we need here.
+medline_list_to_df <- function(medline_list) {
+  med_df <- data.frame("PMID" = character(), 
+                       "TA" = character(),
+                       "MH" = character(),
+                       "DP" = character())
+  for(i in 1:length(medline_list)) {
+    pmid <-  medline_list[[i]][["PMID"]]
+    ta <-  medline_list[[i]][["TA"]]
+    mh <- medline_list[[i]][["MH"]]
+    dp <- medline_list[[i]][["DP"]]
+    # So we only get things with mesh terms filled in here.
+    if(length(mh) == 1 & length(ta) == 1 & length(pmid) == 1 & length(dp) == 1) {
+      tdf <- data.frame("PMID" = pmid,
+                        "TA" = ta,
+                        "MH" = mh,
+                        "DP" = dp)
+      med_df <- bind_rows(med_df, tdf)
+    }
+  }
+  return(med_df)
+}
+
+
+assemble_query_w_subheadings <- function(query_term, subheadings, year) {
+  query <- paste0("\"", query_term, "/", subheadings[[1]],"\"[Mesh]")
+  for(i in 2:length(subheadings)) {
+    query <- paste0(query, " OR \"", query_term, "\" and ", year, "[pdat]")
+  }
+  return(query)
+}
+
+make_query <- function(term) {
+  subheadings <- unlist(strsplit(term, "/"))[-1]
+  if(length(subheadings) > 1) {
+    query_term <- unlist(strsplit(term, "/"))[[1]]
+    query <- assemble_query_w_subheadings(query_term, subheadings, years[i])
+  } else {
+    query <- niche_terms$MH[j]
+  }
+  return(query)
+}
+

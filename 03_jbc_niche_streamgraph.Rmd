@@ -7,70 +7,151 @@ editor_options:
 
 ```{r setup, include=FALSE}
 options(stringsAsFactors = FALSE)
-knitr::opts_chunk$set(echo = TRUE)
-
 source("util/util.R")
 source("util/eutilities.R")
 source("util/.ncbi_api_key.R")
+library(rentrez)
+library(tidyverse)
 ```
 
 ## Retrieve PubMed entries for JBC niche terms
+
+This ended up being a pretty large cluster job that took a few days to run. This could still be optimized, but it is primarily limited in query speed by NCBI's traffic limits. Regardless, I believe I've now collected all the data here using the `retrieve_pubmed.R` script called by `retreive_jbc_niche_articles.sh`.
 
 ```{r}
 niche_terms <- read.csv("results/jbc_characteristic_terms.csv")
 years <- 2005:2019
 
+# Since I saved each batch in the data/ directory 
+# using the index of the year and the index of the 
+# term, there should be files corresponding to years 1-15
+# and terms 1-100. 
+# I'll now just check to see that all these files have been retrieved.
+niche_files <- data.frame("fl" = list.files("data/")) %>%
+  filter(grepl("jbc_niche", fl)) %>%
+  mutate(i = str_extract(fl, "\\d+") %>% as.numeric(),
+         j = str_extract(fl, "\\d+(?=\\.)") %>% as.numeric()) %>%
+  arrange(i, j)
+# Now I want to make sure there is one of each. 
+# Make sure all years are there
+all(1:15 %in% niche_files$i)
+# Now let's see how many terms per year. 
+all_j <- 1:100
+ns <- niche_files %>% group_by(i) %>%
+  summarize(count = n(),
+            missing_terms = all_j[!(all_j %in% j)] %>% paste(collapse = ";"))
+ns
+# Okay, it appears that a few terms are missing from each year...
+# In particular, terms 7 and 30 are missing from all years. 
+niche_terms[30,"MH"]
+niche_terms[7,"MH"]
+# And terms 
+# 32;52;68 are missing from year 2 (2007)
+niche_terms[c(32,52,68),"MH"]
+# It's possible that terms 7 and 30 contained too many results to be returned
+# properly with our search strategy. 
+# Let's fill them in here.
+# It's possible the other terms were just not present in that 2007. 
+# To see if that's the case we can plot their occurence in time. 
+# and see if it's low enough that feasibly 2007 didn't see any Proteolysis publications.
+
 
 ```
 
+#### Retrieving mising terms
+
+So there are a few that slipped through the cracks of the original retrieval method. Let's try to grab them now and see what went wrong.
+
+```{r}
+# Term 90 might have some issues as well...
+niche_papers <- read_csv(paste0("data/", niche_files[which(niche_files$j == 90 & niche_files$i == 5),"fl"]))
+as.character(niche_papers[1,"MH"])
+
+# Okay, so it seems that "Mutation, Missense" was still picked up even though
+# there was an asterisk in front of the query term "*Mutation, Missense"
+# I believe if I remember correctly that the asterisk means that it was 
+# the major focus of the article. I should maybe go back and scrub that
+# from the terms before calculating TF-IDF and doing the clustering
+# TODO: see how the results change when removing the asterisks and 
+# potentially also the subheadings ("/[term]").
+# For now though, I'll forge ahead.
+
+```
+
+To retrieve results for terms 7 and 30, I'll remove the subheadings from the terms
+before executing the search. This will work for now, but to be consistent in the
+analysis, the subheadings should be treated uniformly in the TF-IDF clustering and 
+in the data retrieval here.
+
 ```{r}
 
-# We'll extract just the fields we need here.
-medline_list_to_df <- function(medline_list) {
-  med_df <- data.frame("PMID" = character(), 
-                       "TA" = character(),
-                       "MH" = character(),
-                       "DP" = character())
-  for(i in 1:length(medline_list)) {
-    pmid <-  medline_list[[i]][["PMID"]]
-    ta <-  medline_list[[i]][["TA"]]
-    mh <- medline_list[[i]][["MH"]]
-    dp <- medline_list[[i]][["DP"]]
-    # So we only get things with mesh terms filled in here.
-    if(length(mh) == 1 & length(ta) == 1 & length(pmid) == 1 & length(dp) == 1) {
-          tdf <- data.frame("PMID" = pmid,
-                      "TA" = ta,
-                     "MH" = mh,
-                     "DP" = dp)
-      med_df <- bind_rows(med_df, tdf)
-    }
-  }
-  return(med_df)
-}
+# The major issue with terms 7 and 30 are that they have subheadings and that
+# is weirdly resulting in zero results. "Peptide Fragments" (Term 29)
+# also has subheadings, but there are apparently results returned by that query.
+# TODO: Check term 29 against the results searching pubmed with and without subheadings. 
+# TODO: Whoops it appears that entrez_fetch may have had a default return of 10,000 articles
+# anything that maxed out at 10k probably has more articles to retrive. bummer.
 
 
+# pdat is the date of print publication
+# That does seem like what we want, phew.
 
-# Grab the papers per year corresponding to each mesh term
-query_year <- years[1]
-niche_term <- niche_terms$MH[1]
+# Oh wow, okay. So I fixed the issue with the entrez_fetch maxing out at 10k. 
+# But it turns out that the reason the subheadings weren't working is because they needed to 
+# be separated like so:
+# ( "Recombinant Proteins/chemistry"[Mesh] OR  "Recombinant Proteins/metabolism"[Mesh] )
+# Oh man. Also, I feel that the other queries really should have had quotes
+# Well also, weirdly the other terms with multiple subheadings do return results. It's just
+# these two terms that don't. 
+# Hmm, I gues to grab these terms I'll split it up and the ideal thing to do 
+# Would be to test the other terms to see how much of a difference it makes. 
+# TODO: Maybe. Test the difference between splitting up the subheadings and not
+# Also, why was it that these terms showed up in the first place if they don't 
+# capture anything with this query?
+# It seems like it may not make a difference, but I do want to get it right.
+# TODO: rerun the whole thing with the updated code including quotes on the query.
 
-jbc_niche_articles <- data.frame("PMID" = character(), 
-                       "TA" = character(),
-                       "MH" = character(),
-                       "DP" = character())
+
 
 for(i in 1:length(years)) {
-  for(j in 1:nrow(niche_terms)) {
-    res_ta <- entrez_search(term = paste0(niche_term$MH[j],"[mesh] and ", years[i], "[pdat]"), 
-                            db = "pubmed", retmax = 9e4, api_key = api_key,
+  for(j in c(7,30)) {
+    # TODO: update the retreive_pubmed.R script with the new code.
+    # For terms with multiple subheadings we're going to split them into their individual subheadings
+    query <- make_query(niche_terms$MH[j])
+    
+    # Execute search
+    res_ta <- entrez_search(term = query, 
+                            db = "pubmed", 
+                            retmax = 9e4, 
+                            api_key = api_key,
                             use_history = TRUE)
-    res_medline_chr <- entrez_fetch(db="pubmed", web_history = res_ta$web_history, rettype = "MEDLINE")
-    res_medline_list <- medline_parser(res_medline_chr)
-    medline_df <- medline_list_to_df(medline_list = res_medline_list)
-    jbc_niche_articles <- bind_rows(jbc_niche_articles, medline_df)
+    
+    # Ensure that we retrive all papers even if there is more than 10k results
+    # This is a way of batching the results retrieval.
+    retstarts <- 1e4*(1:ceiling(res_ta$count/1e4)-1)
+    
+    # Let's make this robust to intermittent connection issues.
+    # By retrying four times if we get an error.
+    res_df <- NULL
+    attempt <- 0
+    while( is.null(res_df) && attempt <= 4 ) {
+      attempt <- attempt + 1
+      try(
+        res_df <- do.call(rbind, lapply(retstarts, function(retstart) {
+          entrez_fetch(db="pubmed", 
+                       web_history = res_ta$web_history, 
+                       rettype = "MEDLINE",
+                       retstart = retstart) %>%
+            medline_parser() %>%
+            select("PMID", "MH", "TA", "DP")
+        }))
+      )
+    } 
+    # Output the results.
+    write.csv(res_df, paste0("data/jbc_niche", year_index, "_", j, ".csv"), row.names = FALSE)
   }
 }
-write.csv(jbc_niche_articles, "results/jbc_niche_articles_2005_2019.csv", row.names = FALSE)
+
 
 
 
